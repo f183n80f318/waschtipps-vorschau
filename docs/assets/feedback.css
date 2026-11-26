@@ -149,8 +149,13 @@ body.rv-modus-kommentar, body.rv-modus-aendern { padding-top: 64px; }
   position: fixed; z-index: 63; left: 50%; bottom: calc(88px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
   max-width: calc(100vw - 32px); padding: 12px 18px; border-radius: 8px; background: var(--rv-dunkel); color: var(--rv-weiss); font-weight: 700;
   pointer-events: none; opacity: 0; transition: opacity 220ms var(--rv-ease);
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: center;
 }
 .rv-toast.an { opacity: 1; }
+.rv-toast.an.mit-knopf { pointer-events: auto; }
+.rv-toast-knopf { min-height: 44px; padding: 0 14px; border: 2px solid #FFFFFF; border-radius: 6px; background: transparent; color: #FFFFFF; font: 700 1rem var(--wt-font-text, inherit); cursor: pointer; }
+.rv-toast-knopf:hover { background: rgba(255, 255, 255, 0.14); }
+.rv-toast-knopf:focus-visible { outline: 3px solid #00ACBA; outline-offset: 2px; }
 
 /* Auswertung (Ansicht der Tabelle) */
 .rv-tabelle-ansicht {
@@ -210,3 +215,15 @@ body:has(.rv) .nach-oben { right: calc(max(16px, env(safe-area-inset-right, 0px)
 @media (prefers-reduced-motion: no-preference) {
   .rv-tour-karte, .rv-tour-ring { transition: left 220ms cubic-bezier(0.23, 1, 0.32, 1), top 220ms cubic-bezier(0.23, 1, 0.32, 1), width 220ms cubic-bezier(0.23, 1, 0.32, 1), height 220ms cubic-bezier(0.23, 1, 0.32, 1); }
 }
+
+/* Rückgängig und Zurücksetzen */
+.rv-liste-kopf { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.rv-liste-kopf .rv-frage { margin: 0; }
+.rv-anleitung { display: inline-flex; align-items: center; gap: 6px; }
+.rv-anleitung:disabled { opacity: 0.45; cursor: not-allowed; }
+.rv-gefahr-link { align-self: flex-start; min-height: 44px; padding: 0; border: 0; background: none; color: var(--rv-rot); font: 700 0.9375rem var(--wt-font-text, inherit); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.rv-gefahr { border: 2px solid var(--rv-rot); border-radius: 8px; background: #FBECE9; padding: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 0.9375rem; }
+.rv-gefahr p { margin: 0; }
+.rv-knopf.gefahr { background: var(--rv-rot); border-color: var(--rv-rot); color: #FFFFFF; }
+.rv-knopf.gefahr:hover { background: #6E1605; }
+.rv-knopf.gefahr-rand { background: #FFFFFF; border-color: var(--rv-rot); color: var(--rv-rot); }

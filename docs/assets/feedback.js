@@ -77,14 +77,46 @@
       body: JSON.stringify({ code: CFG.code, eintrag: e, adresse: location.href }) })
       .then(function () { fertig(true); }, function () { fertig(false); });
   }
+  /* ---------- Rückgängig ---------- */
+  var VERLAUF_KEY = "wt-feedback-verlauf-v1", verlauf = [], originalHtml = {};
+  try { verlauf = JSON.parse(localStorage.getItem(VERLAUF_KEY) || "[]") || []; } catch (e) { verlauf = []; }
+  function merke(was) {
+    verlauf.push({ was: was, eintraege: JSON.parse(JSON.stringify(state.eintraege)) });
+    if (verlauf.length > 20) verlauf.shift();
+    try { localStorage.setItem(VERLAUF_KEY, JSON.stringify(verlauf)); } catch (e) { /* egal */ }
+  }
+  function textZurueck(e) {
+    if (!originalHtml[e.id]) return;
+    var el = finde(e.pfad); if (el) { el.innerHTML = originalHtml[e.id]; el.classList.remove("rv-geaendert"); }
+  }
+  function loeschungMelden(e) {
+    if (CFG.demo || !CFG.endpoint || e.status !== "ok") return;
+    fetch(CFG.endpoint, { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ code: CFG.code, aktion: "loeschen", id: e.id }) }).catch(function () { /* egal */ });
+  }
+  function rueckgaengig() {
+    abbrechen();
+    var v = verlauf.pop();
+    if (!v) { melde("Es gibt nichts rückgängig zu machen."); return; }
+    try { localStorage.setItem(VERLAUF_KEY, JSON.stringify(verlauf)); } catch (e) { /* egal */ }
+    var vorher = state.eintraege, jetzt = {}, frueher = {};
+    v.eintraege.forEach(function (x) { jetzt[x.id] = true; });
+    vorher.forEach(function (x) { frueher[x.id] = true; if (!jetzt[x.id]) { textZurueck(x); loeschungMelden(x); } });
+    state.eintraege = v.eintraege;
+    state.eintraege.forEach(function (x) { if (!frueher[x.id] && CFG.endpoint && !CFG.demo) senden(x); });
+    sichern(); pins(); zeichneListe();
+    melde(v.was + " wurde rückgängig gemacht.");
+  }
+
   function neu(art, el, felder) {
     var e = Object.assign({
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       zeit: new Date().toISOString(), name: state.name, seite: seite(), adresse: location.pathname, art: art,
       pfad: el ? pfad(el) : "", stelle: el ? beschreibung(el) : "ganze Seite", status: "offen"
     }, felder);
+    merke(art === "aenderung" ? "Das Speichern des Vorschlags" : "Das Speichern des Kommentars");
     state.eintraege.push(e); sichern(); senden(e); pins(); zeichneListe();
-    melde((art === "aenderung" ? "Vorschlag gespeichert." : "Kommentar gespeichert.") + (art === "allgemein" ? "" : " Für die nächste Anmerkung wieder im Werkzeugkasten wählen."));
+    melde((art === "aenderung" ? "Vorschlag gespeichert." : "Kommentar gespeichert.") + (art === "allgemein" ? "" : " Für die nächste Anmerkung wieder im Werkzeugkasten wählen."), true);
     return e;
   }
 
@@ -99,7 +131,17 @@
   var start = wurzel.querySelector(".rv-start"), panel = wurzel.querySelector(".rv-panel"), zahl = wurzel.querySelector(".rv-zahl");
 
   var toastUhr;
-  function melde(t) { toast.textContent = t; toast.classList.add("an"); clearTimeout(toastUhr); toastUhr = setTimeout(function () { toast.classList.remove("an"); }, 4200); }
+  function melde(t, mitRueckgaengig) {
+    toast.textContent = "";
+    var sp = document.createElement("span"); sp.textContent = t; toast.appendChild(sp);
+    if (mitRueckgaengig) {
+      var b = document.createElement("button"); b.type = "button"; b.className = "rv-toast-knopf"; b.textContent = "Rückgängig";
+      b.addEventListener("click", function () { toast.classList.remove("an"); rueckgaengig(); });
+      toast.appendChild(b);
+    }
+    toast.classList.toggle("mit-knopf", !!mitRueckgaengig); toast.classList.add("an");
+    clearTimeout(toastUhr); toastUhr = setTimeout(function () { toast.classList.remove("an"); }, mitRueckgaengig ? 8000 : 4200);
+  }
 
   function oeffnen(auf, behalteModus) {
     /* Wer den Werkzeugkasten schließt, ist mit Kommentieren fertig (sonst lassen sich keine Links mehr anklicken) */
@@ -130,14 +172,17 @@
       '<button type="button" class="rv-werkzeug" data-a="allgemein"><span class="rv-sym">' + ICO.seite + "</span><b>Zur ganzen Seite</b><small>Allgemeiner Eindruck, fehlende Inhalte</small></button>" +
       '</div></div><form id="rv-allgemein" class="rv-feld" hidden><label for="rv-allgemein-text">Ihr Kommentar zur ganzen Seite</label><textarea id="rv-allgemein-text" rows="4"></textarea>' +
       '<div class="rv-reihe"><button class="rv-knopf" type="submit">Speichern</button><button class="rv-knopf neben" type="button" data-a="allgemein-zu">Abbrechen</button></div></form>' +
-      '<div><p class="rv-frage" id="rv-liste-titel">Ihre Anmerkungen auf dieser Seite</p><ul class="rv-liste" aria-labelledby="rv-liste-titel"></ul></div></div>' +
+      '<div><div class="rv-liste-kopf"><p class="rv-frage" id="rv-liste-titel">Ihre Anmerkungen auf dieser Seite</p>' +
+      '<button type="button" class="rv-anleitung" data-a="rueckgaengig"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg>Rückgängig</button></div>' +
+      '<ul class="rv-liste" aria-labelledby="rv-liste-titel"></ul></div></div>' +
       '<div class="rv-fuss"><p class="rv-speicher">' + ICO.wolke + "<span>" +
       (CFG.demo ? "<b>Demo:</b> Ihre Anmerkungen bleiben in diesem Browser. In der echten Version werden sie sofort gespeichert, ohne dass Sie etwas abschicken müssen."
         : CFG.endpoint ? "Jede Anmerkung wird sofort gespeichert. Sie müssen nichts abschicken."
         : "Ihre Anmerkungen werden in diesem Browser gespeichert, auch über mehrere Seiten hinweg. Wenn Sie fertig sind, laden Sie bitte alle Anmerkungen als Datei herunter und schicken Sie diese per E-Mail zurück.") + "</span></p>" +
-      (CFG.demo ? '<div class="rv-reihe"><button type="button" class="rv-knopf neben" data-a="tabelle">' + ICO.tabelle + "So kommt es bei der Redaktion an</button></div></div>"
+      (CFG.demo ? '<div class="rv-reihe"><button type="button" class="rv-knopf neben" data-a="tabelle">' + ICO.tabelle + 'So kommt es bei der Redaktion an</button></div><div id="rv-zuruecksetzen"></div></div>'
         : '<p class="rv-klein" id="rv-gesamt"></p><div class="rv-reihe">' + (CFG.endpoint ? "" : '<button type="button" class="rv-knopf" data-a="datei">Alle Anmerkungen herunterladen</button>') +
-          '<button type="button" class="rv-knopf neben" data-a="kopieren">Als Text kopieren</button></div></div>');
+          '<button type="button" class="rv-knopf neben" data-a="kopieren">Als Text kopieren</button></div>' +
+          '<div id="rv-zuruecksetzen"></div></div>');
     zeichneListe();
   }
   function werkzeug(m, ico, t, s) {
@@ -157,12 +202,35 @@
       (e.status === "fehler" ? '<button type="button" class="rv-knopf neben" data-a="nochmal" data-id="' + e.id + '">Erneut senden</button>' : "") +
       '<button type="button" class="rv-knopf neben" data-a="loeschen" data-id="' + e.id + '">Löschen</button></div></li>';
   }
+  /* Zurücksetzen mit doppelter Bestätigung */
+  function zuruecksetzenZeichnen(stufe) {
+    var box = panel.querySelector("#rv-zuruecksetzen"); if (!box) return;
+    var n = state.eintraege.length;
+    if (!n) { box.innerHTML = ""; return; }
+    var anz = n + " Anmerkung" + (n === 1 ? "" : "en");
+    if (stufe === 0) box.innerHTML = '<button type="button" class="rv-gefahr-link" data-a="reset1">Alle Anmerkungen löschen …</button>';
+    else if (stufe === 1) box.innerHTML = '<div class="rv-gefahr" role="alert"><p><b>Wirklich alle ' + anz + " auf allen Seiten löschen?</b></p>" +
+      (CFG.endpoint || CFG.demo ? "" : "<p>Tipp: Laden Sie Ihre Anmerkungen vorher herunter, falls Sie sie noch schicken möchten.</p>") +
+      '<div class="rv-reihe"><button type="button" class="rv-knopf gefahr-rand" data-a="reset2">Ja, weiter</button><button type="button" class="rv-knopf neben" data-a="reset-abbrechen">Abbrechen</button></div></div>';
+    else box.innerHTML = '<div class="rv-gefahr" role="alert"><p><b>Letzte Rückfrage:</b> ' + anz + " werden gelöscht.</p>" +
+      '<div class="rv-reihe"><button type="button" class="rv-knopf gefahr" data-a="reset-ja">Alle löschen</button><button type="button" class="rv-knopf neben" data-a="reset-abbrechen">Abbrechen</button></div></div>';
+    if (stufe) { var f = box.querySelector("button"); if (f) f.focus(); }
+  }
+  function allesLoeschen() {
+    merke("Das Löschen aller Anmerkungen");
+    state.eintraege.forEach(function (x) { textZurueck(x); loeschungMelden(x); });
+    state.eintraege = []; sichern(); pins(); zeichneListe();
+    melde("Alle Anmerkungen gelöscht.", true);
+  }
   function hier() { return state.eintraege.filter(function (e) { return e.seite === seite(); }); }
   function zeichneListe() {
     var n = hier().length;
     zahl.hidden = !n; zahl.textContent = n;
     var ges = panel.querySelector("#rv-gesamt");
     if (ges) ges.textContent = state.eintraege.length ? "Insgesamt " + state.eintraege.length + " Anmerkung" + (state.eintraege.length === 1 ? "" : "en") + " auf allen Seiten." : "";
+    var rb = panel.querySelector("[data-a='rueckgaengig']");
+    if (rb) { rb.disabled = !verlauf.length; rb.title = verlauf.length ? verlauf[verlauf.length - 1].was + " rückgängig machen" : "Noch nichts zum Rückgängigmachen"; }
+    zuruecksetzenZeichnen(0);
     var ul = panel.querySelector(".rv-liste"); if (!ul) return;
     ul.innerHTML = n ? hier().map(function (e, i) { return eintragHtml(e, i + 1); }).join("")
       : '<li class="rv-leer">Noch keine Anmerkungen. Wählen Sie oben, was Sie tun möchten.</li>';
@@ -192,7 +260,16 @@
     else if (a === "allgemein") { var f = panel.querySelector("#rv-allgemein"); f.hidden = false; panel.querySelector("#rv-allgemein-text").focus(); }
     else if (a === "allgemein-zu") { panel.querySelector("#rv-allgemein").hidden = true; }
     else if (a === "zeigen" && e) { var el = finde(e.pfad); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); blink(el); } }
-    else if (a === "loeschen" && e) { state.eintraege = state.eintraege.filter(function (x) { return x !== e; }); sichern(); pins(); zeichneListe(); melde("Gelöscht"); }
+    else if (a === "loeschen" && e) {
+      merke("Das Löschen");
+      state.eintraege = state.eintraege.filter(function (x) { return x !== e; });
+      textZurueck(e); loeschungMelden(e); sichern(); pins(); zeichneListe(); melde("Anmerkung gelöscht.", true);
+    }
+    else if (a === "rueckgaengig") { rueckgaengig(); }
+    else if (a === "reset1") { zuruecksetzenZeichnen(1); }
+    else if (a === "reset2") { zuruecksetzenZeichnen(2); }
+    else if (a === "reset-abbrechen") { zuruecksetzenZeichnen(0); var r = panel.querySelector("[data-a='reset1']"); if (r) r.focus(); }
+    else if (a === "reset-ja") { allesLoeschen(); }
     else if (a === "nochmal" && e) { senden(e); }
     else if (a === "tabelle") { tabelle(); }
     else if (a === "datei") { datei(); }
@@ -271,6 +348,11 @@
   }, true);
   document.addEventListener("submit", function (ev) { if (state.modus !== "lesen" || CFG.demo) { if (!inWerkzeug(ev.target)) ev.preventDefault(); } }, true);
   document.addEventListener("keydown", function (ev) {
+    if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && (ev.key === "z" || ev.key === "Z")) {
+      var t = ev.target, tippt = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+      if (!tippt && verlauf.length) { ev.preventDefault(); rueckgaengig(); }
+      return;
+    }
     if (ev.key !== "Escape") return;
     if (!ansicht.hidden) { ansicht.hidden = true; return; }
     if (offen) { abbrechen(); return; }
@@ -311,7 +393,8 @@
       if (neuText === alt.replace(/\s+/g, " ")) { pop.querySelector(".rv-fehler").hidden = false; el.focus(); return; }
       el.contentEditable = "false"; el.classList.remove("rv-bearbeitet"); el.classList.add("rv-geaendert");
       pop.remove(); offen = null;
-      neu("aenderung", el, { alt: alt, neu: neuText, kommentar: pop.querySelector("textarea").value.trim(), stelle: kurz(alt, 160) });
+      var neuEintrag = neu("aenderung", el, { alt: alt, neu: neuText, kommentar: pop.querySelector("textarea").value.trim(), stelle: kurz(alt, 160) });
+      originalHtml[neuEintrag.id] = html;
       fertigNachSpeichern();
     });
     el.addEventListener("keydown", function enter(ev) {
@@ -401,7 +484,11 @@
 
   function fertigNachSpeichern() {
     modus("lesen");
-    if (window.innerWidth >= 700) oeffnen(true);
+    if (window.innerWidth >= 700) {
+      oeffnen(true);
+      /* Fokus auf die Überschrift, nicht ins Namensfeld, damit Strg+Z sofort rückgängig macht */
+      var t = panel.querySelector("#rv-titel"); if (t) { t.setAttribute("tabindex", "-1"); t.focus({ preventScroll: true }); }
+    }
   }
 
   /* ---------- Kurze Anleitung beim ersten Besuch ---------- */
@@ -419,7 +506,7 @@
         text: CFG.demo ? "In dieser Demo bleiben Ihre Anmerkungen im Browser. Hier sehen Sie, wie sie bei der Redaktion ankommen."
           : CFG.endpoint ? "Jede Anmerkung wird sofort gespeichert. Sie müssen nichts abschicken."
           : "Ihre Anmerkungen bleiben in diesem Browser gespeichert, auch über mehrere Seiten. Wenn Sie fertig sind, klicken Sie hier und schicken die Datei per E-Mail zurück." },
-      { vor: function () { oeffnen(false); window.scrollTo(0, 0); }, titel: "Das war’s", text: "Diese Anleitung finden Sie jederzeit wieder im Werkzeugkasten unter „Anleitung“. Vielen Dank für Ihre Hilfe!" }
+      { vor: function () { oeffnen(false); window.scrollTo(0, 0); }, titel: "Das war’s", text: "Etwas aus Versehen gespeichert oder gelöscht? Mit „Rückgängig“ im Werkzeugkasten nehmen Sie den letzten Schritt zurück. Diese Anleitung finden Sie jederzeit wieder unter „Anleitung“. Vielen Dank für Ihre Hilfe!" }
     ];
   }
   var tourEl = null;
