@@ -581,6 +581,8 @@ a, button, summary, input { touch-action: manipulation; }
 /* ================= Runde 3 ================= */
 
 /* Kopfzeile bleibt sichtbar und wird beim Scrollen kompakt */
+/* Kein Nachführen der Scrollposition, wenn die Kopfzeile kleiner wird (sonst Wackeln) */
+body { overflow-anchor: none; }
 .kopf { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30; background: var(--wt-weiss); }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 31; background: var(--wt-weiss); }
 .kopf .innen { transition: padding var(--wt-d-mittel) var(--wt-ease); }

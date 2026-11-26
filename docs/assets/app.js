@@ -291,10 +291,15 @@
   var balken = document.querySelector(".lesefortschritt");
   var kopfband = document.querySelector(".kopfband");
   var spalte = document.querySelector(".lesespalte");
-  var tick = false;
+  var tick = false, kompakt = false;
   var aktualisiere = function () {
     tick = false;
-    if (kopf) kopf.classList.toggle("kompakt", window.scrollY > 40);
+    /* Abstand zwischen Ein- und Ausschalten, damit die Kopfzeile nicht hin- und herspringt */
+    if (kopf) {
+      var y = window.scrollY;
+      if (!kompakt && y > 80) kompakt = true; else if (kompakt && y < 8) kompakt = false;
+      kopf.classList.toggle("kompakt", kompakt);
+    }
     if (balken && spalte) {
       var r = spalte.getBoundingClientRect();
       var gesamt = r.height - window.innerHeight * 0.6;

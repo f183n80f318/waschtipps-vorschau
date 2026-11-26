@@ -34,7 +34,7 @@
   function kurz(t, n) { t = String(t || "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1) + "…" : t; }
   function seite() { return CFG.seite || (document.title || "").replace(/ – waschtipps\.de.*$/, "") || location.pathname; }
   function zeit(iso) { var d = new Date(iso); return d.toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
-  function inWerkzeug(el) { return !!(el && el.closest && el.closest(".rv, .rv-pop, .rv-leiste, .rv-pin, .rv-tabelle-ansicht, .rv-toast")); }
+  function inWerkzeug(el) { return !!(el && el.closest && el.closest(".rv, .rv-pop, .rv-leiste, .rv-pin, .rv-tabelle-ansicht, .rv-toast, .rv-tour")); }
 
   /* Eindeutiger Pfad zu einem Element, damit die Stelle später wiedergefunden wird */
   function pfad(el) {
@@ -84,7 +84,7 @@
       pfad: el ? pfad(el) : "", stelle: el ? beschreibung(el) : "ganze Seite", status: "offen"
     }, felder);
     state.eintraege.push(e); sichern(); senden(e); pins(); zeichneListe();
-    melde(art === "aenderung" ? "Vorschlag gespeichert" : "Kommentar gespeichert");
+    melde((art === "aenderung" ? "Vorschlag gespeichert." : "Kommentar gespeichert.") + (art === "allgemein" ? "" : " Für die nächste Anmerkung wieder im Werkzeugkasten wählen."));
     return e;
   }
 
@@ -99,16 +99,20 @@
   var start = wurzel.querySelector(".rv-start"), panel = wurzel.querySelector(".rv-panel"), zahl = wurzel.querySelector(".rv-zahl");
 
   var toastUhr;
-  function melde(t) { toast.textContent = t; toast.classList.add("an"); clearTimeout(toastUhr); toastUhr = setTimeout(function () { toast.classList.remove("an"); }, 2400); }
+  function melde(t) { toast.textContent = t; toast.classList.add("an"); clearTimeout(toastUhr); toastUhr = setTimeout(function () { toast.classList.remove("an"); }, 4200); }
 
-  function oeffnen(auf) {
+  function oeffnen(auf, behalteModus) {
+    /* Wer den Werkzeugkasten schließt, ist mit Kommentieren fertig (sonst lassen sich keine Links mehr anklicken) */
+    if (!auf && !behalteModus && state.modus !== "lesen") modus("lesen");
     panel.hidden = !auf; start.setAttribute("aria-expanded", auf ? "true" : "false");
     if (auf) { zeichne(); var f = panel.querySelector("input, .rv-werkzeug"); if (f) f.focus(); }
   }
   start.addEventListener("click", function () { oeffnen(panel.hidden); });
 
   function zeichne() {
-    var kopf = '<div class="rv-kopf"><h2 id="rv-titel">Feedback geben</h2><button type="button" class="rv-zu" data-a="zu" aria-label="Schließen">' + ICO.zu + "</button></div>";
+    var kopf = '<div class="rv-kopf"><h2 id="rv-titel">Feedback geben</h2><div class="rv-reihe">' +
+      ((state.frei || !CFG.demo) ? '<button type="button" class="rv-anleitung" data-a="anleitung">Anleitung</button>' : "") +
+      '<button type="button" class="rv-zu" data-a="zu" aria-label="Schließen">' + ICO.zu + "</button></div></div>";
     if (!state.frei && CFG.demo) {
       panel.innerHTML = kopf + '<form class="rv-inhalt" data-a="code">' +
         "<p>Diese Vorschau ist nur für das Team des FORUM WASCHEN. Bitte geben Sie den Zugangscode ein, den Sie per E-Mail bekommen haben.</p>" +
@@ -169,7 +173,7 @@
     if (ev.target.getAttribute("data-a") === "code") {
       var wert = panel.querySelector("#rv-code").value.trim();
       /* Echte Version: Die Seite ist mit dem Code verschlüsselt, und das Skript prüft ihn bei jedem Eintrag noch einmal. */
-      if (wert.toUpperCase() === String(CFG.code).toUpperCase()) { state.frei = true; sichern(); zeichne(); var f = panel.querySelector("#rv-name"); if (f) f.focus(); }
+      if (wert.toUpperCase() === String(CFG.code).toUpperCase()) { state.frei = true; sichern(); zeichne(); tourEinmal(true); }
       else { panel.querySelector("#rv-code-fehler").hidden = false; }
     } else if (ev.target.id === "rv-allgemein") {
       var t = panel.querySelector("#rv-allgemein-text").value.trim();
@@ -192,6 +196,7 @@
     else if (a === "nochmal" && e) { senden(e); }
     else if (a === "tabelle") { tabelle(); }
     else if (a === "datei") { datei(); }
+    else if (a === "anleitung") { tour(); }
     else if (a === "kopieren") { kopieren(panel.querySelector(".rv-fuss")); }
   });
   function blink(el) {
@@ -212,7 +217,7 @@
       '</span><button type="button">Fertig</button>';
     leiste.hidden = false;
     leiste.querySelector("button").addEventListener("click", function () { modus("lesen"); });
-    if (window.innerWidth < 700) oeffnen(false);
+    if (window.innerWidth < 700) oeffnen(false, true);
   }
   var markiert = null;
   document.addEventListener("mouseover", function (ev) {
@@ -286,6 +291,7 @@
       ev.preventDefault(); var t = ta.value.trim(); if (!t) { ta.focus(); return; }
       pop.remove(); offen = null; window.getSelection().removeAllRanges();
       neu("kommentar", el, { kommentar: t, zitat: zitat || "" });
+      fertigNachSpeichern();
     });
   }
   function aendernFeld(el) {
@@ -306,6 +312,7 @@
       el.contentEditable = "false"; el.classList.remove("rv-bearbeitet"); el.classList.add("rv-geaendert");
       pop.remove(); offen = null;
       neu("aenderung", el, { alt: alt, neu: neuText, kommentar: pop.querySelector("textarea").value.trim(), stelle: kurz(alt, 160) });
+      fertigNachSpeichern();
     });
     el.addEventListener("keydown", function enter(ev) {
       if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); if (offen && offen.pop === pop) pop.requestSubmit(); }
@@ -391,6 +398,114 @@
     if (ev.target === ansicht || ev.target.closest(".rv-zu")) { ansicht.hidden = true; start.focus(); return; }
     if (ev.target.closest("[data-a='kopieren']")) kopieren(ansicht.querySelector(".rv-blatt-fuss"));
   });
+
+  function fertigNachSpeichern() {
+    modus("lesen");
+    if (window.innerWidth >= 700) oeffnen(true);
+  }
+
+  /* ---------- Kurze Anleitung beim ersten Besuch ---------- */
+  var TOUR_KEY = "wt-feedback-anleitung-gesehen";
+  function schritte() {
+    var hauptziel = document.querySelector("main h1") || document.querySelector("main h2");
+    return [
+      { titel: "Willkommen in der Vorschau", text: "Sie sehen einen Entwurf der neuen Website waschtipps.de. Wir freuen uns über Ihre Anmerkungen: was unklar ist, was fehlt oder was nicht stimmt. Diese kurze Anleitung zeigt Ihnen in fünf Schritten, wie das geht." },
+      { ziel: function () { return start; }, vor: function () { oeffnen(false); }, titel: "Hier geht es los", text: "Mit dem Knopf „Feedback“ unten rechts öffnen Sie jederzeit den Werkzeugkasten." },
+      { ziel: function () { return panel.querySelector("[data-modus='kommentar']"); }, vor: function () { oeffnen(true, true); }, titel: "Etwas kommentieren", text: "Wählen Sie „Etwas kommentieren“. Danach klicken Sie auf die Stelle der Seite, die Sie meinen." },
+      { ziel: function () { return hauptziel; }, vor: function () { oeffnen(false); if (hauptziel) hauptziel.scrollIntoView({ block: "center" }); }, titel: "Auf die Stelle klicken", text: "Zum Beispiel auf diese Überschrift. Eine gestrichelte Linie zeigt, welche Stelle gemeint ist. Dann öffnet sich ein Feld für Ihren Kommentar. Nach dem Speichern erscheint an der Stelle eine Nummer." },
+      { ziel: function () { return panel.querySelector("[data-modus='aendern']"); }, vor: function () { oeffnen(true, true); }, titel: "Text ändern", text: "Mit „Text ändern“ klicken Sie auf einen Text und schreiben ihn direkt um. Wir sehen dann den alten und den neuen Text." },
+      { ziel: function () { return panel.querySelector("[data-a='datei']") || panel.querySelector(".rv-fuss"); }, vor: function () { oeffnen(true, true); var f = panel.querySelector(".rv-fuss"); if (f) f.scrollIntoView({ block: "end" }); },
+        titel: CFG.endpoint ? "Alles wird gespeichert" : "Am Ende: herunterladen und schicken",
+        text: CFG.demo ? "In dieser Demo bleiben Ihre Anmerkungen im Browser. Hier sehen Sie, wie sie bei der Redaktion ankommen."
+          : CFG.endpoint ? "Jede Anmerkung wird sofort gespeichert. Sie müssen nichts abschicken."
+          : "Ihre Anmerkungen bleiben in diesem Browser gespeichert, auch über mehrere Seiten. Wenn Sie fertig sind, klicken Sie hier und schicken die Datei per E-Mail zurück." },
+      { vor: function () { oeffnen(false); window.scrollTo(0, 0); }, titel: "Das war’s", text: "Diese Anleitung finden Sie jederzeit wieder im Werkzeugkasten unter „Anleitung“. Vielen Dank für Ihre Hilfe!" }
+    ];
+  }
+  var tourEl = null;
+  function tour() {
+    if (tourEl) return;
+    modus("lesen");
+    var liste = schritte(), i = 0, zurueckFokus = document.activeElement;
+    tourEl = h('<div class="rv-tour" role="dialog" aria-modal="true" aria-labelledby="rv-tour-titel">' +
+      '<div class="rv-tour-dunkel"></div><div class="rv-tour-ring" hidden></div>' +
+      '<svg class="rv-tour-pfeil" aria-hidden="true"><defs><marker id="rv-spitze" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#00ACBA"/></marker></defs><line marker-end="url(#rv-spitze)"/></svg>' +
+      '<div class="rv-tour-karte"><p class="rv-tour-zahl"></p><h2 id="rv-tour-titel"></h2><p class="rv-tour-text"></p>' +
+      '<div class="rv-reihe"><button type="button" class="rv-knopf" data-t="weiter">Weiter</button><button type="button" class="rv-knopf neben" data-t="zurueck">Zurück</button>' +
+      '<button type="button" class="rv-tour-ueberspringen" data-t="ende">Anleitung schließen</button></div></div></div>');
+    document.body.appendChild(tourEl);
+    var ring = tourEl.querySelector(".rv-tour-ring"), dunkel = tourEl.querySelector(".rv-tour-dunkel"), karte = tourEl.querySelector(".rv-tour-karte");
+    var linie = tourEl.querySelector("line"), svg = tourEl.querySelector("svg");
+    function ende() {
+      try { localStorage.setItem(TOUR_KEY, "1"); } catch (e) { /* egal */ }
+      window.removeEventListener("resize", lege); tourEl.remove(); tourEl = null;
+      if (zurueckFokus && zurueckFokus.focus) zurueckFokus.focus();
+    }
+    function lege() {
+      var s = liste[i], el = s.ziel && s.ziel();
+      var vw = window.innerWidth, vh = window.innerHeight, kw = karte.offsetWidth, kh = karte.offsetHeight;
+      if (!el || !el.getBoundingClientRect().width) {
+        ring.hidden = true; dunkel.hidden = false; svg.style.display = "none";
+        karte.style.left = Math.max(16, (vw - kw) / 2) + "px"; karte.style.top = Math.max(16, (vh - kh) / 2) + "px"; return;
+      }
+      var r = el.getBoundingClientRect(), pad = 10;
+      ring.hidden = false; dunkel.hidden = true; svg.style.display = "";
+      ring.style.left = (r.left - pad) + "px"; ring.style.top = (r.top - pad) + "px";
+      ring.style.width = (r.width + 2 * pad) + "px"; ring.style.height = (r.height + 2 * pad) + "px";
+      var abstand = 70, x, y;
+      var linksPlatz = r.left - pad, rechtsPlatz = vw - r.right - pad;
+      if (r.bottom + abstand + kh < vh - 16) { y = r.bottom + abstand; x = r.left + r.width / 2 - kw / 2; }
+      else if (r.top - abstand - kh > 16) { y = r.top - abstand - kh; x = r.left + r.width / 2 - kw / 2; }
+      else if (linksPlatz > kw + abstand + 16) { x = r.left - abstand - kw - pad; y = r.top + r.height / 2 - kh / 2; }
+      else { x = r.right + abstand + pad; y = r.top + r.height / 2 - kh / 2; }
+      x = Math.max(16, Math.min(x, vw - kw - 16)); y = Math.max(16, Math.min(y, vh - kh - 16));
+      karte.style.left = x + "px"; karte.style.top = y + "px";
+      /* Pfeil von der Karte zum Ring */
+      var kx = x + kw / 2, ky = y + kh / 2, zx = r.left + r.width / 2, zy = r.top + r.height / 2;
+      var sx = Math.max(x, Math.min(zx, x + kw)), sy = Math.max(y, Math.min(zy, y + kh));
+      if (sx > x && sx < x + kw && sy > y && sy < y + kh) { sx = kx; sy = zy < ky ? y : y + kh; }
+      var ex = Math.max(r.left - pad, Math.min(sx, r.right + pad)), ey = Math.max(r.top - pad, Math.min(sy, r.bottom + pad));
+      var dx = ex - sx, dy = ey - sy, len = Math.hypot(dx, dy);
+      if (len < 24) { svg.style.display = "none"; return; }
+      var kurzEnde = Math.min(14, len / 3);
+      linie.setAttribute("x1", sx); linie.setAttribute("y1", sy);
+      linie.setAttribute("x2", ex - dx / len * kurzEnde); linie.setAttribute("y2", ey - dy / len * kurzEnde);
+    }
+    function zeige() {
+      var s = liste[i];
+      if (s.vor) s.vor();
+      tourEl.querySelector(".rv-tour-zahl").textContent = "Schritt " + (i + 1) + " von " + liste.length;
+      tourEl.querySelector("#rv-tour-titel").textContent = s.titel;
+      tourEl.querySelector(".rv-tour-text").textContent = s.text;
+      tourEl.querySelector("[data-t='zurueck']").hidden = i === 0;
+      tourEl.querySelector("[data-t='weiter']").textContent = i === liste.length - 1 ? "Los geht’s" : "Weiter";
+      requestAnimationFrame(function () { lege(); tourEl.querySelector("[data-t='weiter']").focus({ preventScroll: true }); });
+    }
+    tourEl.addEventListener("click", function (ev) {
+      var b = ev.target.closest("[data-t]"); if (!b) return;
+      var t = b.getAttribute("data-t");
+      if (t === "weiter") { if (i < liste.length - 1) { i++; zeige(); } else ende(); }
+      else if (t === "zurueck" && i > 0) { i--; zeige(); }
+      else if (t === "ende") { oeffnen(false); ende(); }
+    });
+    tourEl.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape") { ev.stopPropagation(); oeffnen(false); ende(); }
+      if (ev.key === "Tab") { /* Fokus in der Karte halten */
+        var f = Array.prototype.filter.call(karte.querySelectorAll("button"), function (b) { return !b.hidden; });
+        var erst = f[0], letzt = f[f.length - 1];
+        if (ev.shiftKey && document.activeElement === erst) { ev.preventDefault(); letzt.focus(); }
+        else if (!ev.shiftKey && document.activeElement === letzt) { ev.preventDefault(); erst.focus(); }
+      }
+    });
+    window.addEventListener("resize", lege);
+    zeige();
+  }
+  function tourEinmal(sofort) {
+    var gesehen = false;
+    try { gesehen = localStorage.getItem(TOUR_KEY) === "1"; } catch (e) { /* ohne Speicher: zeigen */ }
+    if (!gesehen) setTimeout(tour, sofort ? 50 : 700);
+  }
+  if (!CFG.demo) tourEinmal(false);
 
   zeichneListe();
 })();
